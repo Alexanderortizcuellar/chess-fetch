@@ -7,8 +7,8 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{
-    ChessComSubcommand, ChessgamesSubcommand, Cli, Commands, LichessSubcommand,
-    PgnMentorSubcommand, ShellType, TwicSubcommand,
+    ChessComSubcommand, ChessResultsSubcommand, ChessgamesSubcommand, Cli, Commands,
+    LichessSubcommand, PgnMentorSubcommand, ShellType, TwicSubcommand,
 };
 use colored::Colorize;
 use std::io;
@@ -337,6 +337,107 @@ async fn main() -> Result<()> {
                 }
             }
         }
+
+        Some(Commands::ChessResults(args)) => match args.command {
+            ChessResultsSubcommand::Tournaments {
+                query,
+                fed,
+                city,
+                since,
+                until,
+                has_games,
+                finished_only,
+                limit,
+            } => {
+                sources::chessresults::search_tournaments(
+                    &client,
+                    query.as_deref(),
+                    fed.as_deref(),
+                    city.as_deref(),
+                    since.as_deref().and_then(parse_date),
+                    until.as_deref().and_then(parse_date),
+                    has_games,
+                    finished_only,
+                    limit,
+                )
+                .await?;
+            }
+            ChessResultsSubcommand::Players {
+                last_name,
+                first_name,
+                fide_id,
+                fed,
+                min_elo,
+                limit,
+            } => {
+                sources::chessresults::search_players(
+                    &client,
+                    &last_name,
+                    first_name.as_deref(),
+                    fide_id.as_deref(),
+                    fed.as_deref(),
+                    min_elo.as_deref(),
+                    limit,
+                )
+                .await?;
+            }
+            ChessResultsSubcommand::Games {
+                player,
+                first_name,
+                fide_id,
+                tournament_id,
+                tournament_name,
+                color,
+                result,
+                round_from,
+                round_to,
+                limit,
+            } => {
+                sources::chessresults::search_games(
+                    &client,
+                    player.as_deref(),
+                    first_name.as_deref(),
+                    fide_id.as_deref(),
+                    tournament_id.as_deref(),
+                    tournament_name.as_deref(),
+                    color.as_deref(),
+                    result.as_deref(),
+                    round_from,
+                    round_to,
+                    limit,
+                )
+                .await?;
+            }
+            ChessResultsSubcommand::Download {
+                tournament_id,
+                player,
+                first_name,
+                fide_id,
+                tournament_name,
+                color,
+                result,
+                round_from,
+                round_to,
+                output,
+                split_files,
+            } => {
+                sources::chessresults::download_games(
+                    &client,
+                    player.as_deref(),
+                    tournament_id.as_deref(),
+                    first_name.as_deref(),
+                    fide_id.as_deref(),
+                    tournament_name.as_deref(),
+                    color.as_deref(),
+                    result.as_deref(),
+                    round_from,
+                    round_to,
+                    output.as_deref(),
+                    split_files,
+                )
+                .await?;
+            }
+        },
 
         Some(Commands::Interactive) => {
             interactive::run_interactive_wizard(&client).await?;

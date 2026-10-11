@@ -22,6 +22,7 @@ pub fn build_client() -> Result<Client> {
 
     let client = Client::builder()
         .default_headers(headers)
+        .cookie_store(true)
         .timeout(Duration::from_secs(60))
         .connect_timeout(Duration::from_secs(15))
         .build()

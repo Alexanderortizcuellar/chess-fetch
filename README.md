@@ -23,13 +23,19 @@ A blazing-fast, feature-rich command-line interface (CLI) written in Rust to que
    - **Live & finished broadcast exports**: download complete broadcast tours or specific rounds by ID or Lichess URL
    - **Broadcast listing & search**: list official broadcasts with `--query`, `--finished-only`, `--since`, and `--until` filters
 
-3. **Chessgames.com (Scraper & Exporter)**
+3. **Chess-Results.com (Scraper, Search & PGN Exporter)**
+   - **Tournament search**: search tournaments across the world by name, federation (e.g. `COL`, `GER`, `ESP`, `USA`), city, and date range
+   - **Player search**: find player tournament participation history by name, FIDE ID, federation, or Elo rating
+   - **Game search**: query individual pairings, results, round numbers, and tournaments
+   - **PGN download**: download complete tournament PGN files or player game archives directly by TNR ID, URL, or player name
+
+4. **Chessgames.com (Scraper & Exporter)**
    - Download single game by GID (e.g. `1000000` or page URL)
    - Download full game collections by CID (e.g. `1000001` or collection URL)
    - Download/scrape player games by PID with multi-page support
    - Search players, games, and collections via `--query`
 
-4. **The Week in Chess (TWIC)**
+5. **The Week in Chess (TWIC)**
    - Download specific issues by number (e.g. `--issue 1663`)
    - Download issue ranges (e.g. `--range 1650..1663`)
    - Auto-fetch the `--latest` issue
@@ -37,16 +43,16 @@ A blazing-fast, feature-rich command-line interface (CLI) written in Rust to que
    - Optional `--combine` to merge multiple issues into a single master PGN
    - Automatic extraction of `.zip` into `.pgn`
 
-5. **PGN Mentor / PGN Master**
+6. **PGN Mentor / PGN Master**
    - Search, list, and download historical & modern grandmaster player collections (Carlsen, Kasparov, Fischer, Capablanca, etc.)
    - Search, list, and download opening collections (Sicilian, French, Caro-Kann, King's Indian, Ruy Lopez, etc.)
    - Search, list, and download major tournament events (Candidates, Olympiads, World Championships)
    - Direct automatic decompression of zip archives into clean PGNs
 
-6. **Interactive Wizard Mode**
+7. **Interactive Wizard Mode**
    - Interactive CLI prompt (`chess-fetch interactive`) with menus, search, and guided filtering.
 
-7. **Shell Completions**
+8. **Shell Completions**
    - Generate completion scripts for `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 
 ---
@@ -113,7 +119,34 @@ chess-fetch lichess broadcast --id https://lichess.org/broadcast/candidates-2024
 chess-fetch lichess broadcast --id njUPbMHT -o round_games.pgn
 ```
 
-### 3. Chessgames.com
+### 3. Chess-Results.com
+
+```bash
+# Search tournaments by name, federation, city, or date
+chess-fetch chess-results tournaments --query "Feria de las Flores" --limit 10
+chess-fetch chess-results tournaments --fed COL --city Medellin
+chess-fetch chess-results tournaments --query "World Rapid" --has-games
+
+# Search player tournament history by name, FIDE ID, or federation
+chess-fetch chess-results players --last-name Carlsen --first-name Magnus --limit 10
+chess-fetch chess-results players --last-name Nakamura --fed USA
+
+# Search specific pairings / games
+chess-fetch chess-results games --player Carlsen --limit 10
+chess-fetch chess-results games --tournament-id 1435703 --round-from 1 --round-to 3
+
+# Download complete tournament PGN files by TNR ID or URL
+chess-fetch chess-results download --tournament-id 1435703 -o world_team_rapid.pgn
+chess-fetch chess-results download --tournament-id https://chess-results.com/tnr1435703.aspx -o world_team_rapid.pgn
+
+# Download player games from Chess-Results
+chess-fetch chess-results download --player Carlsen -o carlsen_chess_results.pgn
+
+# Save games into individual files in a directory
+chess-fetch chess-results download -t 1435703 --split-files -o ./tournament_games
+```
+
+### 4. Chessgames.com
 
 ```bash
 # Search for games, players, or collections
@@ -129,7 +162,7 @@ chess-fetch chessgames collection --id 1000001 -o collection.pgn
 chess-fetch chessgames player --id 10240 --max-pages 5 -o player_games.pgn
 ```
 
-### 4. The Week in Chess (TWIC)
+### 5. The Week in Chess (TWIC)
 
 ```bash
 # List recent TWIC issues
@@ -145,7 +178,7 @@ chess-fetch twic download --issue 1663 -o ./twic_games
 chess-fetch twic download --range 1650..1663 --combine master_database.pgn
 ```
 
-### 5. PGN Mentor / PGN Master
+### 6. PGN Mentor / PGN Master
 
 ```bash
 # Search and list openings
@@ -163,14 +196,14 @@ chess-fetch pgn-mentor events --search Candidates --list
 chess-fetch pgn-mentor events --download candidates2024 --output-dir ./events
 ```
 
-### 6. Interactive Wizard
+### 7. Interactive Wizard
 
 ```bash
 # Launch interactive step-by-step menu
 chess-fetch interactive
 ```
 
-### 7. Shell Completions
+### 8. Shell Completions
 
 ```bash
 # PowerShell

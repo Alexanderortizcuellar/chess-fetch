@@ -36,6 +36,7 @@ pub async fn run_interactive_wizard(client: &Client) -> Result<()> {
         "3. Chessgames.com (Games, Collections, Players, Search)",
         "4. The Week in Chess (TWIC Weekly Master Tournament PGNs)",
         "5. PGN Mentor / PGN Master (Players, Openings, Events Archives)",
+        "6. Chess-Results.com (Tournaments, Players, Games, PGN Downloads)",
     ];
 
     let choice = Select::new("Select Chess Data Source:", sources).prompt()?;
@@ -50,6 +51,8 @@ pub async fn run_interactive_wizard(client: &Client) -> Result<()> {
         interactive_twic(client).await?;
     } else if choice.starts_with("5.") {
         interactive_pgnmentor(client).await?;
+    } else if choice.starts_with("6.") {
+        interactive_chessresults(client).await?;
     }
 
     Ok(())
@@ -620,4 +623,204 @@ fn parse_date_opt(s: &str) -> Option<chrono::NaiveDate> {
     } else {
         None
     }
+}
+
+async fn interactive_chessresults(client: &Client) -> Result<()> {
+    let actions = vec![
+        "Search Tournaments (by name, federation, city)",
+        "Search Players (by name, FIDE ID, federation)",
+        "Download Tournament Games by TNR ID or URL",
+        "Download Player Games by Name",
+        "Search Games (inspect pairings, results, moves)",
+    ];
+
+    let choice = Select::new("Chess-Results Action:", actions).prompt()?;
+
+    if choice.starts_with("Search Tournaments") {
+        let query = Text::new("Tournament name / search query (optional):").prompt()?;
+        let fed = Text::new("Federation code (e.g. COL, ESP, GER, optional):").prompt()?;
+        let city = Text::new("City / Location (optional):").prompt()?;
+        let has_games = Confirm::new("Only show tournaments with games available?")
+            .with_default(false)
+            .prompt()?;
+
+        let tourneys = crate::sources::chessresults::search_tournaments(
+            client,
+            if query.trim().is_empty() {
+                None
+            } else {
+                Some(query.trim())
+            },
+            if fed.trim().is_empty() {
+                None
+            } else {
+                Some(fed.trim())
+            },
+            if city.trim().is_empty() {
+                None
+            } else {
+                Some(city.trim())
+            },
+            None,
+            None,
+            has_games,
+            false,
+            Some(30),
+        )
+        .await?;
+
+        if !tourneys.is_empty()
+            && Confirm::new("Download games from one of these tournaments?")
+                .with_default(false)
+                .prompt()?
+        {
+            let options: Vec<String> = tourneys
+                .iter()
+                .map(|t| format!("{:<10} - {}", t.id, t.name))
+                .collect();
+            let selected = Select::new("Select tournament to download games:", options).prompt()?;
+            let tnr_id = selected.split_whitespace().next().unwrap_or("");
+            if !tnr_id.is_empty() {
+                let out_str = Text::new("Output PGN file (leave empty for auto):").prompt()?;
+                let out_path = if out_str.trim().is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(out_str))
+                };
+                crate::sources::chessresults::download_games(
+                    client,
+                    None,
+                    Some(tnr_id),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    out_path.as_deref(),
+                    false,
+                )
+                .await?;
+            }
+        }
+    } else if choice.starts_with("Search Players") {
+        let last_name = Text::new("Player last name:").prompt()?;
+        let first_name = Text::new("Player first name (optional):").prompt()?;
+        let fed = Text::new("Federation code (optional):").prompt()?;
+
+        crate::sources::chessresults::search_players(
+            client,
+            last_name.trim(),
+            if first_name.trim().is_empty() {
+                None
+            } else {
+                Some(first_name.trim())
+            },
+            None,
+            if fed.trim().is_empty() {
+                None
+            } else {
+                Some(fed.trim())
+            },
+            None,
+            Some(30),
+        )
+        .await?;
+    } else if choice.starts_with("Download Tournament Games") {
+        let id_str = Text::new(
+            "Tournament TNR ID or URL (e.g. 1435703 or https://chess-results.com/tnr1435703.aspx):",
+        )
+        .prompt()?;
+        let out_str = Text::new("Output PGN file (leave empty for auto):").prompt()?;
+        let out_path = if out_str.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(out_str))
+        };
+        let split_files = Confirm::new("Save as individual game files?")
+            .with_default(false)
+            .prompt()?;
+
+        crate::sources::chessresults::download_games(
+            client,
+            None,
+            Some(id_str.trim()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            out_path.as_deref(),
+            split_files,
+        )
+        .await?;
+    } else if choice.starts_with("Download Player Games") {
+        let player = Text::new("Player last name:").prompt()?;
+        let first_name = Text::new("Player first name (optional):").prompt()?;
+        let out_str = Text::new("Output PGN file (leave empty for auto):").prompt()?;
+        let out_path = if out_str.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(out_str))
+        };
+        let split_files = Confirm::new("Save as individual game files?")
+            .with_default(false)
+            .prompt()?;
+
+        crate::sources::chessresults::download_games(
+            client,
+            Some(player.trim()),
+            None,
+            if first_name.trim().is_empty() {
+                None
+            } else {
+                Some(first_name.trim())
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            out_path.as_deref(),
+            split_files,
+        )
+        .await?;
+    } else if choice.starts_with("Search Games") {
+        let player = Text::new("Player last name (optional):").prompt()?;
+        let tour_id = Text::new("Tournament TNR ID (optional):").prompt()?;
+        let tour_name = Text::new("Tournament name (optional):").prompt()?;
+
+        crate::sources::chessresults::search_games(
+            client,
+            if player.trim().is_empty() {
+                None
+            } else {
+                Some(player.trim())
+            },
+            None,
+            None,
+            if tour_id.trim().is_empty() {
+                None
+            } else {
+                Some(tour_id.trim())
+            },
+            if tour_name.trim().is_empty() {
+                None
+            } else {
+                Some(tour_name.trim())
+            },
+            None,
+            None,
+            None,
+            None,
+            Some(25),
+        )
+        .await?;
+    }
+
+    Ok(())
 }

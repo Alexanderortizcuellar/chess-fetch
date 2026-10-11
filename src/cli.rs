@@ -59,6 +59,13 @@ pub enum Commands {
     PgnMentor(PgnMentorArgs),
 
     #[command(
+        name = "chess-results",
+        aliases = ["chessresults", "cr"],
+        about = "Search tournaments, players, and games or download PGNs from Chess-Results.com"
+    )]
+    ChessResults(ChessResultsArgs),
+
+    #[command(
         name = "interactive",
         alias = "wizard",
         about = "Launch an interactive prompt wizard to search and download games"
@@ -567,6 +574,140 @@ pub enum PgnMentorSubcommand {
 
         #[arg(long, help = "Keep downloaded .zip archive")]
         keep_zip: bool,
+    },
+}
+
+// ---------------- Chess-Results.com ----------------
+#[derive(Args, Debug)]
+pub struct ChessResultsArgs {
+    #[command(subcommand)]
+    pub command: ChessResultsSubcommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ChessResultsSubcommand {
+    #[command(about = "Search tournaments on Chess-Results by name, federation, city, or date")]
+    Tournaments {
+        #[arg(short = 'q', long, help = "Tournament name or search query")]
+        query: Option<String>,
+
+        #[arg(
+            short = 'f',
+            long,
+            help = "Federation code (e.g. COL, GER, ESP, USA, etc.)"
+        )]
+        fed: Option<String>,
+
+        #[arg(short = 'c', long, help = "City or location")]
+        city: Option<String>,
+
+        #[arg(long, help = "Start date filter (YYYY-MM-DD or DD.MM.YYYY)")]
+        since: Option<String>,
+
+        #[arg(long, help = "End date filter (YYYY-MM-DD or DD.MM.YYYY)")]
+        until: Option<String>,
+
+        #[arg(long, help = "Only show tournaments with games available for download")]
+        has_games: bool,
+
+        #[arg(long, help = "Only show finished tournaments")]
+        finished_only: bool,
+
+        #[arg(short = 'n', long, help = "Maximum number of tournaments to display")]
+        limit: Option<usize>,
+    },
+
+    #[command(about = "Search player participations on Chess-Results")]
+    Players {
+        #[arg(short = 'n', long, help = "Player last name", required = true)]
+        last_name: String,
+
+        #[arg(short = 'f', long, help = "Player first name")]
+        first_name: Option<String>,
+
+        #[arg(long, help = "FIDE ID")]
+        fide_id: Option<String>,
+
+        #[arg(long, help = "Federation code (e.g. COL, USA, etc.)")]
+        fed: Option<String>,
+
+        #[arg(long, help = "Minimum Elo rating")]
+        min_elo: Option<String>,
+
+        #[arg(short = 'l', long, help = "Maximum results to display")]
+        limit: Option<usize>,
+    },
+
+    #[command(about = "Search games on Chess-Results")]
+    Games {
+        #[arg(short = 'p', long, help = "Player last name")]
+        player: Option<String>,
+
+        #[arg(short = 'f', long, help = "Player first name")]
+        first_name: Option<String>,
+
+        #[arg(long, help = "FIDE ID")]
+        fide_id: Option<String>,
+
+        #[arg(short = 't', long, help = "Tournament ID (tnr) or URL")]
+        tournament_id: Option<String>,
+
+        #[arg(long, help = "Tournament name")]
+        tournament_name: Option<String>,
+
+        #[arg(long, help = "Player color: white or black")]
+        color: Option<String>,
+
+        #[arg(long, help = "Game result: win, loss, draw, 1-0, 0-1, 1/2-1/2")]
+        result: Option<String>,
+
+        #[arg(long, help = "Round from")]
+        round_from: Option<u32>,
+
+        #[arg(long, help = "Round to")]
+        round_to: Option<u32>,
+
+        #[arg(short = 'n', long, help = "Maximum results to display")]
+        limit: Option<usize>,
+    },
+
+    #[command(about = "Download games in PGN format from Chess-Results")]
+    Download {
+        #[arg(short = 't', long, help = "Tournament ID (tnr) or URL")]
+        tournament_id: Option<String>,
+
+        #[arg(short = 'p', long, help = "Player last name")]
+        player: Option<String>,
+
+        #[arg(short = 'f', long, help = "Player first name")]
+        first_name: Option<String>,
+
+        #[arg(long, help = "FIDE ID")]
+        fide_id: Option<String>,
+
+        #[arg(long, help = "Tournament name")]
+        tournament_name: Option<String>,
+
+        #[arg(long, help = "Player color: white or black")]
+        color: Option<String>,
+
+        #[arg(long, help = "Game result: 1-0, 0-1, 1/2-1/2")]
+        result: Option<String>,
+
+        #[arg(long, help = "Round from")]
+        round_from: Option<u32>,
+
+        #[arg(long, help = "Round to")]
+        round_to: Option<u32>,
+
+        #[arg(short = 'o', long, help = "Output PGN file or directory")]
+        output: Option<PathBuf>,
+
+        #[arg(
+            long,
+            help = "Save each game into a separate PGN file inside output directory"
+        )]
+        split_files: bool,
     },
 }
 
