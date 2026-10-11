@@ -166,6 +166,8 @@ async fn interactive_lichess(client: &Client) -> Result<()> {
         "Download User Games",
         "Download Single Game by ID or URL",
         "Download Tournament Games",
+        "Download Broadcast Games by ID or URL",
+        "List & Search Broadcasts (Past/Finished or Scheduled)",
     ];
 
     let action = Select::new("Lichess Action:", actions).prompt()?;
@@ -261,7 +263,7 @@ async fn interactive_lichess(client: &Client) -> Result<()> {
             out_path.as_deref(),
         )
         .await?;
-    } else {
+    } else if action.starts_with("Download Tournament Games") {
         let tourney_id = Text::new("Lichess Tournament ID or URL:").prompt()?;
         let out_str = Text::new("Output PGN File (leave empty for auto):").prompt()?;
         let out_path = if out_str.trim().is_empty() {
@@ -275,6 +277,94 @@ async fn interactive_lichess(client: &Client) -> Result<()> {
             out_path.as_deref(),
         )
         .await?;
+    } else if action.starts_with("Download Broadcast Games") {
+        let broadcast_id =
+            Text::new("Broadcast Tour/Round ID or URL (e.g. T9eMnL3X or URL):").prompt()?;
+        let round_id_str =
+            Text::new("Specific Round ID (optional, leave empty for whole tour):").prompt()?;
+        let round_id = if round_id_str.trim().is_empty() {
+            None
+        } else {
+            Some(round_id_str.trim())
+        };
+        let split_files = Confirm::new("Save each game into a separate PGN file?")
+            .with_default(false)
+            .prompt()?;
+        let out_str = Text::new("Output path (leave empty for auto):").prompt()?;
+        let out_path = if out_str.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(out_str))
+        };
+
+        crate::sources::lichess::download_broadcast(
+            client,
+            &broadcast_id,
+            round_id,
+            true,
+            true,
+            true,
+            out_path.as_deref(),
+            split_files,
+        )
+        .await?;
+    } else {
+        let search =
+            Text::new("Search query (tournament or player name, leave empty for all):").prompt()?;
+        let search_opt = if search.trim().is_empty() {
+            None
+        } else {
+            Some(search.as_str())
+        };
+        let finished_only = Confirm::new("Filter only broadcasts that have already finished?")
+            .with_default(true)
+            .prompt()?;
+        let since_str = Text::new("Since Date (YYYY-MM-DD, or leave empty):").prompt()?;
+        let until_str = Text::new("Until Date (YYYY-MM-DD, or leave empty):").prompt()?;
+
+        let items = crate::sources::lichess::list_broadcasts(
+            client,
+            search_opt,
+            parse_date_opt(&since_str),
+            parse_date_opt(&until_str),
+            finished_only,
+            Some(30),
+        )
+        .await?;
+
+        if !items.is_empty() {
+            let want_download =
+                Confirm::new("Would you like to download one of these broadcasts now?")
+                    .with_default(false)
+                    .prompt()?;
+            if want_download {
+                let options: Vec<String> = items
+                    .iter()
+                    .map(|i| format!("{:<10} {}", i.tour.id, i.tour.name))
+                    .collect();
+                let selected = Select::new("Select broadcast to download:", options).prompt()?;
+                let selected_id = selected.split_whitespace().next().unwrap_or("");
+                if !selected_id.is_empty() {
+                    let out_str = Text::new("Output PGN file (leave empty for auto):").prompt()?;
+                    let out_path = if out_str.trim().is_empty() {
+                        None
+                    } else {
+                        Some(PathBuf::from(out_str))
+                    };
+                    crate::sources::lichess::download_broadcast(
+                        client,
+                        selected_id,
+                        None,
+                        true,
+                        true,
+                        true,
+                        out_path.as_deref(),
+                        false,
+                    )
+                    .await?;
+                }
+            }
+        }
     }
 
     Ok(())
@@ -285,7 +375,8 @@ async fn interactive_chessgames(client: &Client) -> Result<()> {
         "Download Single Game by ID or URL",
         "Download Game Collection by ID or URL",
         "Download Player Games by ID or URL",
-        "Search Players, Games, or Collections",
+        "Search Collections (e.g. Carlsen, Fischer, Traps)",
+        "Search All (Collections, Players, Games)",
     ];
 
     let action = Select::new("Chessgames.com Action:", actions).prompt()?;
@@ -326,6 +417,43 @@ async fn interactive_chessgames(client: &Client) -> Result<()> {
             out_path.as_deref(),
         )
         .await?;
+    } else if action.starts_with("Search Collections") {
+        let query =
+            Text::new("Collection search keyword (e.g. Carlsen, Fischer, Opening):").prompt()?;
+        let collections = crate::sources::chessgames::search_collections(client, &query).await?;
+        if collections.is_empty() {
+            println!(
+                "{} No collections found matching '{}'",
+                "!".yellow().bold(),
+                query
+            );
+        } else {
+            println!(
+                "{} Found {} collections:",
+                "✓".green().bold(),
+                collections.len().to_string().cyan()
+            );
+            let choices: Vec<String> = collections
+                .iter()
+                .map(|(cid, title)| format!("CID: {:<10} Title: {}", cid, title))
+                .collect();
+            let selected = Select::new(
+                "Select collection to download (or Esc/Ctrl-C to cancel):",
+                choices,
+            )
+            .prompt()?;
+            let cid = selected.split_whitespace().nth(1).unwrap_or("");
+            if !cid.is_empty() {
+                let out_str = Text::new("Output PGN file (leave empty for auto):").prompt()?;
+                let out_path = if out_str.trim().is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(out_str))
+                };
+                crate::sources::chessgames::download_collection(client, cid, out_path.as_deref())
+                    .await?;
+            }
+        }
     } else {
         let query = Text::new("Search query:").prompt()?;
         crate::sources::chessgames::search_chessgames(client, &query).await?;

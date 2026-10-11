@@ -137,6 +137,45 @@ async fn main() -> Result<()> {
                 sources::lichess::download_tournament_games(&client, &id, output.as_deref())
                     .await?;
             }
+            LichessSubcommand::Broadcast {
+                id,
+                round,
+                list,
+                search,
+                since,
+                until,
+                finished_only,
+                limit,
+                clocks,
+                comments,
+                variations,
+                output,
+                split_files,
+            } => {
+                if list || (id.is_none() && round.is_none()) {
+                    sources::lichess::list_broadcasts(
+                        &client,
+                        search.as_deref(),
+                        since.as_deref().and_then(parse_date),
+                        until.as_deref().and_then(parse_date),
+                        finished_only,
+                        limit,
+                    )
+                    .await?;
+                } else if let Some(target_id) = id.as_deref().or(round.as_deref()) {
+                    sources::lichess::download_broadcast(
+                        &client,
+                        target_id,
+                        round.as_deref(),
+                        clocks,
+                        comments,
+                        variations,
+                        output.as_deref(),
+                        split_files,
+                    )
+                    .await?;
+                }
+            }
         },
 
         Some(Commands::Chessgames(args)) => match args.command {

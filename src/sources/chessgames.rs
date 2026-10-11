@@ -266,75 +266,149 @@ pub async fn download_player_games(
     Ok(out_path)
 }
 
-pub async fn search_chessgames(client: &Client, query: &str) -> Result<()> {
+pub async fn search_collections(client: &Client, query: &str) -> Result<Vec<(String, String)>> {
     let url = format!(
-        "https://www.chessgames.com/perl/ezsearch.pl?search={}",
+        "https://www.chessgames.com/perl/collections?search={}",
         urlencoding(query)
     );
-    let spinner = crate::utils::http::create_spinner("Searching Chessgames.com...");
+    let spinner = crate::utils::http::create_spinner("Searching Chessgames.com collections...");
 
-    let res = client
-        .get(&url)
-        .send()
-        .await
-        .with_context(|| format!("Failed to execute search for '{}'", query))?;
-    let html_text = res.text().await?;
+    let res = client.get(&url).send().await;
     spinner.finish_and_clear();
 
+    let mut results = Vec::new();
+    let resp = match res {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Ok(results),
+    };
+
+    let html_text = resp.text().await.unwrap_or_default();
     let document = Html::parse_document(&html_text);
     let link_sel = Selector::parse("a[href]").unwrap();
 
-    let mut results = Vec::new();
+    let mut seen = HashSet::new();
 
     for el in document.select(&link_sel) {
         if let Some(href) = el.value().attr("href") {
-            let text = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
-            if text.is_empty() {
-                continue;
-            }
-
-            if href.contains("chessgame?gid=") {
-                let gid = extract_id(href, "gid");
-                results.push(format!(
-                    "  [Game]        ID: {:<10} Title: {}",
-                    gid.cyan(),
-                    text
-                ));
-            } else if href.contains("chessplayer?pid=") {
-                let pid = extract_id(href, "pid");
-                results.push(format!(
-                    "  [Player]      ID: {:<10} Name:  {}",
-                    pid.yellow(),
-                    text
-                ));
-            } else if href.contains("chesscollection?cid=") {
+            if href.contains("cid=") || href.contains("chesscollection") {
                 let cid = extract_id(href, "cid");
-                results.push(format!(
-                    "  [Collection]  ID: {:<10} Name:  {}",
-                    cid.magenta(),
-                    text
-                ));
+                if !cid.is_empty() && seen.insert(cid.clone()) {
+                    let title = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                    if !title.is_empty() {
+                        results.push((cid, title));
+                    }
+                }
             }
         }
     }
 
-    if results.is_empty() {
+    Ok(results)
+}
+
+pub async fn search_chessgames(client: &Client, query: &str) -> Result<()> {
+    // 1. Search collections first (dedicated endpoint that always works)
+    let collections = search_collections(client, query).await.unwrap_or_default();
+
+    // 2. Also attempt general search (games & players)
+    let ez_url = format!(
+        "https://www.chessgames.com/perl/ezsearch.pl?search={}",
+        urlencoding(query)
+    );
+    let spinner = crate::utils::http::create_spinner("Searching Chessgames.com games & players...");
+
+    let ez_res = client.get(&ez_url).send().await;
+    spinner.finish_and_clear();
+
+    let mut games_and_players = Vec::new();
+
+    if let Ok(res) = ez_res {
+        if res.status().is_success() {
+            if let Ok(html_text) = res.text().await {
+                let document = Html::parse_document(&html_text);
+                let link_sel = Selector::parse("a[href]").unwrap();
+
+                for el in document.select(&link_sel) {
+                    if let Some(href) = el.value().attr("href") {
+                        let text = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                        if text.is_empty() {
+                            continue;
+                        }
+
+                        if href.contains("chessgame?gid=") {
+                            let gid = extract_id(href, "gid");
+                            games_and_players.push(format!(
+                                "  [Game]        ID: {:<10} Title: {}",
+                                gid.cyan(),
+                                text
+                            ));
+                        } else if href.contains("chessplayer?pid=")
+                            || href.contains("chess.pl?pid=")
+                        {
+                            let pid = extract_id(href, "pid");
+                            games_and_players.push(format!(
+                                "  [Player]      ID: {:<10} Name:  {}",
+                                pid.yellow(),
+                                text
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let total_found = collections.len() + games_and_players.len();
+
+    if total_found == 0 {
         println!(
             "{} No results found on Chessgames.com for query '{}'",
             "!".yellow().bold(),
             query
         );
-    } else {
+        return Ok(());
+    }
+
+    println!(
+        "{} Search results for '{}' ({} results):",
+        "✓".green().bold(),
+        query.cyan().bold(),
+        total_found
+    );
+
+    if !collections.is_empty() {
         println!(
-            "{} Search results for '{}':",
-            "✓".green().bold(),
-            query.cyan().bold()
+            "\n{}",
+            "── Collections ─────────────────────────────"
+                .magenta()
+                .bold()
         );
-        for r in results.iter().take(40) {
-            println!("{}", r);
+        for (cid, title) in collections.iter().take(25) {
+            println!(
+                "  [Collection]  CID: {:<10} Title: {}",
+                cid.magenta().bold(),
+                title
+            );
         }
-        if results.len() > 40 {
-            println!("  ... and {} more results", results.len() - 40);
+        if collections.len() > 25 {
+            println!("  ... and {} more collections", collections.len() - 25);
+        }
+    }
+
+    if !games_and_players.is_empty() {
+        println!(
+            "\n{}",
+            "── Games & Players ──────────────────────────"
+                .cyan()
+                .bold()
+        );
+        for item in games_and_players.iter().take(25) {
+            println!("{}", item);
+        }
+        if games_and_players.len() > 25 {
+            println!(
+                "  ... and {} more games/players",
+                games_and_players.len() - 25
+            );
         }
     }
 

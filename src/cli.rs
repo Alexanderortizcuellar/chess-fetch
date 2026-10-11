@@ -271,6 +271,85 @@ pub enum LichessSubcommand {
         #[arg(short, long, help = "Output PGN file path")]
         output: Option<PathBuf>,
     },
+
+    #[command(about = "Download games or list rounds from Lichess live/archived broadcasts")]
+    Broadcast {
+        #[arg(
+            short,
+            long,
+            help = "Broadcast tournament or round ID or URL (e.g. T9eMnL3X or https://lichess.org/broadcast/...)"
+        )]
+        id: Option<String>,
+
+        #[arg(
+            short,
+            long,
+            help = "Download a specific round by Round ID (e.g. njUPbMHT)"
+        )]
+        round: Option<String>,
+
+        #[arg(
+            short,
+            long,
+            help = "List available broadcasts (can be filtered by --search, --since, --until, --finished-only)"
+        )]
+        list: bool,
+
+        #[arg(
+            short = 's',
+            long,
+            help = "Search query to filter broadcasts by tournament name or player"
+        )]
+        search: Option<String>,
+
+        #[arg(long, help = "Filter broadcasts from date (YYYY-MM-DD)")]
+        since: Option<String>,
+
+        #[arg(short = 'U', long, help = "Filter broadcasts until date (YYYY-MM-DD)")]
+        until: Option<String>,
+
+        #[arg(
+            long,
+            help = "Only list or download broadcasts that have already finished"
+        )]
+        finished_only: bool,
+
+        #[arg(short = 'n', long, help = "Maximum number of broadcasts to list")]
+        limit: Option<usize>,
+
+        #[arg(
+            long,
+            default_value_t = true,
+            action = clap::ArgAction::Set,
+            help = "Include clock times in PGN"
+        )]
+        clocks: bool,
+
+        #[arg(
+            long,
+            default_value_t = true,
+            action = clap::ArgAction::Set,
+            help = "Include broadcast commentator comments"
+        )]
+        comments: bool,
+
+        #[arg(
+            long,
+            default_value_t = true,
+            action = clap::ArgAction::Set,
+            help = "Include alternative variations in PGN"
+        )]
+        variations: bool,
+
+        #[arg(short, long, help = "Output PGN file or directory")]
+        output: Option<PathBuf>,
+
+        #[arg(
+            long,
+            help = "Save each game into a separate PGN file inside output directory"
+        )]
+        split_files: bool,
+    },
 }
 
 // ---------------- Chessgames.com ----------------

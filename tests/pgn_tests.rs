@@ -88,7 +88,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename() {
-        assert_eq!(sanitize_filename("Carlsen, Magnus: 2024/01?"), "Carlsen, Magnus_ 2024_01_");
+        assert_eq!(
+            sanitize_filename("Carlsen, Magnus: 2024/01?"),
+            "Carlsen, Magnus_ 2024_01_"
+        );
         assert_eq!(sanitize_filename("Game <1> *test*"), "Game _1_ _test_");
     }
 }

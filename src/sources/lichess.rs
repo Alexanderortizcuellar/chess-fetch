@@ -280,3 +280,340 @@ pub async fn download_tournament_games(
     );
     Ok(out_path)
 }
+
+#[allow(dead_code)]
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct BroadcastTour {
+    pub id: String,
+    pub name: String,
+    pub slug: Option<String>,
+    pub url: Option<String>,
+    pub tier: Option<u32>,
+    pub dates: Option<Vec<i64>>,
+    pub description: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct BroadcastRound {
+    pub id: String,
+    pub name: String,
+    pub slug: Option<String>,
+    pub finished: Option<bool>,
+    #[serde(rename = "finishedAt")]
+    pub finished_at: Option<i64>,
+    #[serde(rename = "startsAt")]
+    pub starts_at: Option<i64>,
+    pub url: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct BroadcastItem {
+    pub tour: BroadcastTour,
+    pub rounds: Option<Vec<BroadcastRound>>,
+    #[serde(rename = "defaultRoundId")]
+    pub default_round_id: Option<String>,
+    pub group: Option<String>,
+}
+
+pub async fn fetch_broadcasts(client: &Client) -> Result<Vec<BroadcastItem>> {
+    let url = "https://lichess.org/api/broadcast";
+    let spinner = crate::utils::http::create_spinner("Fetching Lichess broadcasts catalog...");
+    let res = client
+        .get(url)
+        .header("Accept", "application/x-ndjson")
+        .send()
+        .await
+        .with_context(|| "Failed to fetch Lichess broadcasts")?;
+
+    if !res.status().is_success() {
+        spinner.finish_and_clear();
+        anyhow::bail!("Failed to fetch broadcasts: HTTP {}", res.status());
+    }
+
+    let text = res.text().await?;
+    spinner.finish_and_clear();
+
+    let mut items = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            if let Ok(item) = serde_json::from_str::<BroadcastItem>(trimmed) {
+                items.push(item);
+            }
+        }
+    }
+
+    Ok(items)
+}
+
+pub async fn list_broadcasts(
+    client: &Client,
+    search: Option<&str>,
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+    finished_only: bool,
+    limit: Option<usize>,
+) -> Result<Vec<BroadcastItem>> {
+    let mut broadcasts = fetch_broadcasts(client).await?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    broadcasts.retain(|item| {
+        // Finished / has played games filter
+        let has_played_games = if let Some(rounds) = &item.rounds {
+            let finished_count = rounds.iter().filter(|r| r.finished == Some(true)).count();
+            finished_count > 0
+        } else if let Some(dates) = &item.tour.dates {
+            dates.first().map(|&start| start < now_ms).unwrap_or(false)
+        } else {
+            false
+        };
+
+        if finished_only && !has_played_games {
+            return false;
+        }
+
+        // Date range filters
+        if let Some(dates) = &item.tour.dates {
+            if let Some(first_ts) = dates.first() {
+                if let Some(dt) = chrono::DateTime::from_timestamp_millis(*first_ts) {
+                    let d = dt.date_naive();
+                    if let Some(since_d) = since {
+                        if d < since_d {
+                            return false;
+                        }
+                    }
+                    if let Some(until_d) = until {
+                        if d > until_d {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Search query
+        if let Some(q) = search {
+            let q_lower = q.to_lowercase();
+            let name_match = item.tour.name.to_lowercase().contains(&q_lower);
+            let desc_match = item
+                .tour
+                .description
+                .as_deref()
+                .map(|d| d.to_lowercase().contains(&q_lower))
+                .unwrap_or(false);
+            let group_match = item
+                .group
+                .as_deref()
+                .map(|g| g.to_lowercase().contains(&q_lower))
+                .unwrap_or(false);
+            if !name_match && !desc_match && !group_match {
+                return false;
+            }
+        }
+
+        true
+    });
+
+    let display_count = limit.unwrap_or(30).min(broadcasts.len());
+    println!(
+        "{} Found {} broadcasts (showing top {}):",
+        "✓".green().bold(),
+        broadcasts.len().to_string().cyan().bold(),
+        display_count
+    );
+    println!(
+        "{:<10} {:<15} {:<45} {:<14} {}",
+        "Tour ID".bold(),
+        "Status".bold(),
+        "Tournament Name".bold(),
+        "Rounds".bold(),
+        "Dates".bold()
+    );
+    println!("{}", "-".repeat(95));
+
+    for item in broadcasts.iter().take(display_count) {
+        let (status_str, rounds_str) = if let Some(rounds) = &item.rounds {
+            let total = rounds.len();
+            let finished_count = rounds.iter().filter(|r| r.finished == Some(true)).count();
+            if total > 0 && finished_count == total {
+                (
+                    "Finished".green(),
+                    format!("{}/{} played", finished_count, total),
+                )
+            } else if finished_count > 0 {
+                (
+                    "In Progress".cyan(),
+                    format!("{}/{} played", finished_count, total),
+                )
+            } else {
+                ("Upcoming".yellow(), format!("{} rnds", total))
+            }
+        } else {
+            ("Scheduled".normal(), "-".to_string())
+        };
+
+        let dates_str = if let Some(dates) = &item.tour.dates {
+            let start = dates
+                .first()
+                .and_then(|ts| chrono::DateTime::from_timestamp_millis(*ts))
+                .map(|dt| dt.format("%Y-%m-%d").to_string())
+                .unwrap_or_default();
+            let end = dates
+                .last()
+                .and_then(|ts| chrono::DateTime::from_timestamp_millis(*ts))
+                .map(|dt| dt.format("%Y-%m-%d").to_string())
+                .unwrap_or_default();
+            if start == end {
+                start
+            } else {
+                format!("{} to {}", start, end)
+            }
+        } else {
+            "-".to_string()
+        };
+
+        let short_name = if item.tour.name.chars().count() > 43 {
+            format!("{}...", item.tour.name.chars().take(40).collect::<String>())
+        } else {
+            item.tour.name.clone()
+        };
+
+        println!(
+            "{:<10} {:<15} {:<45} {:<12} {}",
+            item.tour.id.cyan().bold(),
+            status_str,
+            short_name,
+            rounds_str,
+            dates_str.dimmed()
+        );
+    }
+
+    Ok(broadcasts)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn download_broadcast(
+    client: &Client,
+    id_or_url: &str,
+    round_id: Option<&str>,
+    clocks: bool,
+    comments: bool,
+    variations: bool,
+    output: Option<&Path>,
+    split_files: bool,
+) -> Result<PathBuf> {
+    let (target_type, clean_id) = parse_broadcast_id_or_url(id_or_url, round_id);
+
+    let base_url = match target_type {
+        BroadcastTarget::Round => {
+            format!("https://lichess.org/api/broadcast/round/{}.pgn", clean_id)
+        }
+        BroadcastTarget::Tour => format!("https://lichess.org/api/broadcast/{}.pgn", clean_id),
+    };
+
+    let mut query = Vec::new();
+    if !clocks {
+        query.push(("clocks", "false"));
+    }
+    if !comments {
+        query.push(("comments", "false"));
+    }
+    if !variations {
+        query.push(("variations", "false"));
+    }
+
+    let spinner = crate::utils::http::create_spinner("Downloading Lichess broadcast PGN...");
+
+    let res = client
+        .get(&base_url)
+        .query(&query)
+        .send()
+        .await
+        .with_context(|| format!("Failed to download broadcast {}", clean_id))?;
+
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        spinner.finish_and_clear();
+        anyhow::bail!("Lichess broadcast '{}' not found", clean_id);
+    }
+    if !res.status().is_success() {
+        spinner.finish_and_clear();
+        anyhow::bail!("Failed to download broadcast: HTTP {}", res.status());
+    }
+
+    let pgn = res.text().await?;
+    spinner.finish_and_clear();
+
+    if pgn.trim().is_empty() {
+        println!(
+            "{} Broadcast '{}' returned empty PGN (no completed games yet).",
+            "!".yellow().bold(),
+            clean_id
+        );
+    }
+
+    let parsed_games = crate::utils::pgn::split_pgn_games(&pgn);
+    let count = parsed_games.len();
+
+    let out_path = if split_files {
+        let default_dir = PathBuf::from(format!("lichess_broadcast_{}", clean_id));
+        let dir = output.unwrap_or(&default_dir);
+        crate::utils::pgn::save_split_games(&parsed_games, dir)?;
+        println!(
+            "{} Successfully saved {} broadcast games into directory '{}'",
+            "✓".green().bold(),
+            count.to_string().cyan().bold(),
+            dir.display().to_string().cyan()
+        );
+        dir.to_path_buf()
+    } else {
+        let default_file = PathBuf::from(format!("lichess_broadcast_{}.pgn", clean_id));
+        let out_file = output.map(PathBuf::from).unwrap_or(default_file);
+        crate::utils::fs::save_text_to_file(&out_file, &pgn)?;
+        println!(
+            "{} Successfully downloaded {} broadcast games to '{}'",
+            "✓".green().bold(),
+            count.to_string().cyan().bold(),
+            out_file.display().to_string().cyan()
+        );
+        out_file
+    };
+
+    Ok(out_path)
+}
+
+enum BroadcastTarget {
+    Tour,
+    Round,
+}
+
+fn parse_broadcast_id_or_url(
+    input: &str,
+    explicit_round: Option<&str>,
+) -> (BroadcastTarget, String) {
+    if let Some(r) = explicit_round {
+        let clean = r.split('/').next_back().unwrap_or(r);
+        return (BroadcastTarget::Round, clean.to_string());
+    }
+
+    let trimmed = input.trim().trim_end_matches('/');
+    if trimmed.contains("lichess.org/broadcast/") {
+        let parts: Vec<&str> = trimmed
+            .split("/broadcast/")
+            .nth(1)
+            .unwrap_or("")
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if parts.len() >= 3 {
+            let round_id = parts[2];
+            return (BroadcastTarget::Round, round_id.to_string());
+        } else if parts.len() == 2 {
+            let tour_id = parts[1];
+            return (BroadcastTarget::Tour, tour_id.to_string());
+        }
+    }
+
+    (BroadcastTarget::Tour, trimmed.to_string())
+}

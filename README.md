@@ -20,6 +20,8 @@ A blazing-fast, feature-rich command-line interface (CLI) written in Rust to que
    - Opponent filtering (`--vs`), color filtering (`--color`), rated/casual
    - Single game export by ID/URL
    - Tournament games export by tournament ID/URL
+   - **Live & finished broadcast exports**: download complete broadcast tours or specific rounds by ID or Lichess URL
+   - **Broadcast listing & search**: list official broadcasts with `--query`, `--finished-only`, `--since`, and `--until` filters
 
 3. **Chessgames.com (Scraper & Exporter)**
    - Download single game by GID (e.g. `1000000` or page URL)
@@ -96,6 +98,17 @@ chess-fetch lichess game --id 1IB3wwbL -o lichess_game.pgn
 
 # Download all games from a tournament
 chess-fetch lichess tournament --id AbCdEfGh -o tournament.pgn
+
+# List available broadcasts (filtering for finished/played ones)
+chess-fetch lichess broadcast --list --finished-only
+chess-fetch lichess broadcast --list --query "Tata Steel" --finished-only
+
+# Download all games from an entire broadcast tournament (by ID or URL)
+chess-fetch lichess broadcast --id T9eMnL3X -o tata_steel.pgn
+chess-fetch lichess broadcast --id https://lichess.org/broadcast/candidates-2024/round-14/T9eMnL3X -o candidates.pgn
+
+# Download games from a specific broadcast round (by round ID or round URL)
+chess-fetch lichess broadcast --id njUPbMHT -o round_games.pgn
 ```
 
 ### 3. Chessgames.com
