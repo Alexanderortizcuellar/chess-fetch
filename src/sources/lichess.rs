@@ -498,20 +498,15 @@ pub async fn download_broadcast(
     client: &Client,
     id_or_url: &str,
     round_id: Option<&str>,
+    round_only: bool,
     clocks: bool,
     comments: bool,
     variations: bool,
     output: Option<&Path>,
     split_files: bool,
 ) -> Result<PathBuf> {
-    let (target_type, clean_id) = parse_broadcast_id_or_url(id_or_url, round_id);
-
-    let base_url = match target_type {
-        BroadcastTarget::Round => {
-            format!("https://lichess.org/api/broadcast/round/{}.pgn", clean_id)
-        }
-        BroadcastTarget::Tour => format!("https://lichess.org/api/broadcast/{}.pgn", clean_id),
-    };
+    let (mut target_type, clean_id) =
+        parse_broadcast_id_or_url(client, id_or_url, round_id, round_only).await;
 
     let mut query = Vec::new();
     if !clocks {
@@ -526,16 +521,42 @@ pub async fn download_broadcast(
 
     let spinner = crate::utils::http::create_spinner("Downloading Lichess broadcast PGN...");
 
-    let res = client
-        .get(&base_url)
+    let url = match target_type {
+        BroadcastTarget::Round => {
+            format!("https://lichess.org/api/broadcast/round/{}.pgn", clean_id)
+        }
+        BroadcastTarget::Tour => format!("https://lichess.org/api/broadcast/{}.pgn", clean_id),
+    };
+
+    let mut res = client
+        .get(&url)
         .query(&query)
         .send()
         .await
         .with_context(|| format!("Failed to download broadcast {}", clean_id))?;
 
+    // If a Tour request returned 404, check if the ID was actually a Round ID
+    if res.status() == reqwest::StatusCode::NOT_FOUND && target_type == BroadcastTarget::Tour {
+        let round_fallback = format!("https://lichess.org/api/broadcast/round/{}.pgn", clean_id);
+        if let Ok(round_res) = client.get(&round_fallback).query(&query).send().await {
+            if round_res.status().is_success() {
+                println!(
+                    "{} '{}' was identified as a Round ID. Downloading round...",
+                    "ℹ".cyan().bold(),
+                    clean_id.cyan()
+                );
+                target_type = BroadcastTarget::Round;
+                res = round_res;
+            }
+        }
+    }
+
     if res.status() == reqwest::StatusCode::NOT_FOUND {
         spinner.finish_and_clear();
-        anyhow::bail!("Lichess broadcast '{}' not found", clean_id);
+        anyhow::bail!(
+            "Lichess broadcast '{}' not found. Ensure the ID or URL is valid.",
+            clean_id
+        );
     }
     if !res.status().is_success() {
         spinner.finish_and_clear();
@@ -556,8 +577,13 @@ pub async fn download_broadcast(
     let parsed_games = crate::utils::pgn::split_pgn_games(&pgn);
     let count = parsed_games.len();
 
+    let target_prefix = match target_type {
+        BroadcastTarget::Tour => "broadcast_tour",
+        BroadcastTarget::Round => "broadcast_round",
+    };
+
     let out_path = if split_files {
-        let default_dir = PathBuf::from(format!("lichess_broadcast_{}", clean_id));
+        let default_dir = PathBuf::from(format!("lichess_{}_{}", target_prefix, clean_id));
         let dir = output.unwrap_or(&default_dir);
         crate::utils::pgn::save_split_games(&parsed_games, dir)?;
         println!(
@@ -568,7 +594,7 @@ pub async fn download_broadcast(
         );
         dir.to_path_buf()
     } else {
-        let default_file = PathBuf::from(format!("lichess_broadcast_{}.pgn", clean_id));
+        let default_file = PathBuf::from(format!("lichess_{}_{}.pgn", target_prefix, clean_id));
         let out_file = output.map(PathBuf::from).unwrap_or(default_file);
         crate::utils::fs::save_text_to_file(&out_file, &pgn)?;
         println!(
@@ -583,14 +609,17 @@ pub async fn download_broadcast(
     Ok(out_path)
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum BroadcastTarget {
     Tour,
     Round,
 }
 
-fn parse_broadcast_id_or_url(
+async fn parse_broadcast_id_or_url(
+    client: &Client,
     input: &str,
     explicit_round: Option<&str>,
+    round_only: bool,
 ) -> (BroadcastTarget, String) {
     if let Some(r) = explicit_round {
         let clean = r.split('/').next_back().unwrap_or(r);
@@ -606,8 +635,32 @@ fn parse_broadcast_id_or_url(
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
+
         if parts.len() >= 3 {
             let round_id = parts[2];
+            if round_only {
+                return (BroadcastTarget::Round, round_id.to_string());
+            }
+
+            // By default, try resolving the parent tournament (Tour ID) to download all rounds
+            if let Some((tour_id, tour_name)) =
+                resolve_tour_from_broadcast_url(client, trimmed).await
+            {
+                println!(
+                    "{} Detected tournament '{}' (Tour ID: {}). Downloading all rounds...",
+                    "ℹ".cyan().bold(),
+                    tour_name.cyan(),
+                    tour_id.bold()
+                );
+                println!(
+                    "   {} Use {} to download only this single round.",
+                    "Tip:".dimmed(),
+                    "--round-only".yellow()
+                );
+                return (BroadcastTarget::Tour, tour_id);
+            }
+
+            // Fallback to round if tour could not be resolved
             return (BroadcastTarget::Round, round_id.to_string());
         } else if parts.len() == 2 {
             let tour_id = parts[1];
@@ -616,4 +669,30 @@ fn parse_broadcast_id_or_url(
     }
 
     (BroadcastTarget::Tour, trimmed.to_string())
+}
+
+async fn resolve_tour_from_broadcast_url(client: &Client, url: &str) -> Option<(String, String)> {
+    let res = client.get(url).send().await.ok()?;
+    if !res.status().is_success() {
+        return None;
+    }
+    let html = res.text().await.ok()?;
+
+    // Search for <script type="application/json" id="page-init-data">
+    let marker = r#"id="page-init-data">"#;
+    let start_pos = html.find(marker)? + marker.len();
+    let rest = &html[start_pos..];
+    let end_pos = rest.find("</script>")?;
+    let json_text = &rest[..end_pos];
+
+    let json: serde_json::Value = serde_json::from_str(json_text).ok()?;
+    let tour = json.get("relay")?.get("tour")?;
+    let id = tour.get("id")?.as_str()?.to_string();
+    let name = tour
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Some((id, name))
 }

@@ -140,6 +140,7 @@ async fn main() -> Result<()> {
             LichessSubcommand::Broadcast {
                 id,
                 round,
+                round_only,
                 list,
                 search,
                 since,
@@ -167,6 +168,7 @@ async fn main() -> Result<()> {
                         &client,
                         target_id,
                         round.as_deref(),
+                        round_only,
                         clocks,
                         comments,
                         variations,

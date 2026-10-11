@@ -103,11 +103,13 @@ chess-fetch lichess tournament --id AbCdEfGh -o tournament.pgn
 chess-fetch lichess broadcast --list --finished-only
 chess-fetch lichess broadcast --list --query "Tata Steel" --finished-only
 
-# Download all games from an entire broadcast tournament (by ID or URL)
+# Download all games from an entire broadcast tournament (by Tour ID or any Round URL)
+# Passing any round URL will automatically resolve the parent tournament and download all rounds!
 chess-fetch lichess broadcast --id T9eMnL3X -o tata_steel.pgn
-chess-fetch lichess broadcast --id https://lichess.org/broadcast/candidates-2024/round-14/T9eMnL3X -o candidates.pgn
+chess-fetch lichess broadcast --id https://lichess.org/broadcast/xxxiii-irt-internacional-feria-de-las-flores-2026-internacional/round-1/u2sDgTxa -o feria_flores.pgn
 
-# Download games from a specific broadcast round (by round ID or round URL)
+# Download ONLY a specific round from a round URL or round ID
+chess-fetch lichess broadcast --id https://lichess.org/broadcast/candidates-2024/round-14/T9eMnL3X --round-only -o round14.pgn
 chess-fetch lichess broadcast --id njUPbMHT -o round_games.pgn
 ```
 

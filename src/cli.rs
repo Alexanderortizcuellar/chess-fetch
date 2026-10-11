@@ -289,6 +289,12 @@ pub enum LichessSubcommand {
         round: Option<String>,
 
         #[arg(
+            long,
+            help = "Download only the single round from a round URL instead of the entire tournament"
+        )]
+        round_only: bool,
+
+        #[arg(
             short,
             long,
             help = "List available broadcasts (can be filtered by --search, --since, --until, --finished-only)"
